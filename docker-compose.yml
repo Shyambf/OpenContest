@@ -1,0 +1,110 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: opencontest
+      POSTGRES_USER: opencontest
+      POSTGRES_PASSWORD: opencontest
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opencontest -d opencontest"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DJANGO_DEBUG: "1"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000
+      POSTGRES_DB: opencontest
+      POSTGRES_USER: opencontest
+      POSTGRES_PASSWORD: opencontest
+      POSTGRES_HOST: db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JUDGE_QUEUE: judge.submissions
+      RUNNER_CALLBACK_TOKEN: dev-runner-token
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py seed &&
+             python manage.py runserver 0.0.0.0:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  queue-repair:
+    build:
+      context: ./backend
+    environment:
+      DJANGO_DEBUG: "1"
+      POSTGRES_DB: opencontest
+      POSTGRES_USER: opencontest
+      POSTGRES_PASSWORD: opencontest
+      POSTGRES_HOST: db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JUDGE_QUEUE: judge.submissions
+      RUNNER_CALLBACK_TOKEN: dev-runner-token
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py requeue_pending --loop --stale-minutes 2 --running-stale-minutes 10 --interval-seconds 30"
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  runner:
+    build:
+      context: ./runners/go-runner
+      args:
+        NSJAIL_REF: master
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JUDGE_QUEUE: judge.submissions
+      BACKEND_API_URL: http://backend:8000/api
+      NSJAIL_BIN: /usr/local/bin/nsjail
+      RUNNER_CALLBACK_TOKEN: dev-runner-token
+      NSJAIL_EXTRA_ARGS: "--disable_clone_newns --rlimit_nproc 64 --rlimit_fsize 64"
+    privileged: true
+    security_opt:
+      - seccomp=unconfined
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

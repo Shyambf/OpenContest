@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespace.yaml
+  - 01-config.yaml
+  - 10-postgres.yaml
+  - 11-rabbitmq.yaml
+  - 20-backend.yaml
+  - 21-frontend.yaml
+  - 22-runner.yaml
+  - 30-ingress.yaml
+  - 40-keda-runner-scaledobject.yaml

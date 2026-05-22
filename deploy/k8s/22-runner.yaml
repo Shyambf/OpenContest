@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner
+  namespace: opencontest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: runner
+  template:
+    metadata:
+      labels:
+        app: runner
+    spec:
+      containers:
+        - name: runner
+          image: opencontest-runner:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: opencontest-config
+                  key: RABBITMQ_URL
+            - name: JUDGE_QUEUE
+              valueFrom:
+                configMapKeyRef:
+                  name: opencontest-config
+                  key: JUDGE_QUEUE
+            - name: BACKEND_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: opencontest-config
+                  key: BACKEND_API_URL
+            - name: NSJAIL_BIN
+              value: /usr/local/bin/nsjail
+            - name: RUNNER_CALLBACK_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: opencontest-config
+                  key: RUNNER_CALLBACK_TOKEN
+            - name: NSJAIL_EXTRA_ARGS
+              value: "--disable_clone_newns --rlimit_nproc 64 --rlimit_fsize 64"
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

@@ -1,0 +1,56 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: rabbitmq-trigger-auth
+  namespace: opencontest
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: rabbitmq-keda-secret
+      key: host
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-keda-secret
+  namespace: opencontest
+type: Opaque
+stringData:
+  host: "amqp://guest:guest@rabbitmq.opencontest.svc.cluster.local:5672/"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: runner-rabbitmq-scale
+  namespace: opencontest
+spec:
+  scaleTargetRef:
+    name: runner
+  minReplicaCount: 1
+  maxReplicaCount: 50
+  pollingInterval: 2
+  cooldownPeriod: 30
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 25
+              periodSeconds: 15
+            - type: Percent
+              value: 200
+              periodSeconds: 15
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 60
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: judge.submissions
+        mode: QueueLength
+        value: "1"
+      authenticationRef:
+        name: rabbitmq-trigger-auth
