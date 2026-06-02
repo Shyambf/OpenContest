@@ -1,0 +1,9 @@
+{
+  "name": "cpp",
+  "packages": ["g++"],
+  "source_file": "main.cpp",
+  "compile_commands": [
+    ["g++", "-std=c++17", "-O2", "-pipe", "-static", "-s", "main.cpp", "-o", "main"]
+  ],
+  "run_command": ["./main"]
+}

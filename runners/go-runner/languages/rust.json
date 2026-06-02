@@ -1,0 +1,9 @@
+{
+  "name": "rust",
+  "packages": ["rustc"],
+  "source_file": "main.rs",
+  "compile_commands": [
+    ["rustc", "-O", "main.rs", "-o", "main"]
+  ],
+  "run_command": ["./main"]
+}

@@ -29,7 +29,7 @@ spec:
   minReplicaCount: 1
   maxReplicaCount: 50
   pollingInterval: 2
-  cooldownPeriod: 30
+  cooldownPeriod: 60
   advanced:
     horizontalPodAutoscalerConfig:
       behavior:
@@ -37,11 +37,11 @@ spec:
           stabilizationWindowSeconds: 0
           policies:
             - type: Pods
-              value: 25
-              periodSeconds: 15
+              value: 10
+              periodSeconds: 10
             - type: Percent
-              value: 200
-              periodSeconds: 15
+              value: 100
+              periodSeconds: 10
           selectPolicy: Max
         scaleDown:
           stabilizationWindowSeconds: 60
@@ -51,6 +51,6 @@ spec:
         protocol: amqp
         queueName: judge.submissions
         mode: QueueLength
-        value: "1"
+        value: "2"
       authenticationRef:
         name: rabbitmq-trigger-auth

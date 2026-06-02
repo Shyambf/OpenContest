@@ -1,0 +1,6 @@
+{
+  "name": "python",
+  "packages": ["python3"],
+  "source_file": "main.py",
+  "run_command": ["/usr/bin/python3", "main.py"]
+}

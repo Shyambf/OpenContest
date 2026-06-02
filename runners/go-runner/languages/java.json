@@ -1,0 +1,9 @@
+{
+  "name": "java",
+  "packages": ["openjdk-17-jdk-headless"],
+  "source_file": "Main.java",
+  "compile_commands": [
+    ["javac", "Main.java"]
+  ],
+  "run_command": ["/usr/bin/java", "-cp", ".", "Main"]
+}

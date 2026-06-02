@@ -27,7 +27,6 @@ urlpatterns = [
     path("submissions/", views.submissions),
     path("submissions/<int:submission_id>/rejudge/", views.rejudge),
     path("submissions/<int:submission_id>/override/", views.override_submission),
-    path("submissions/<int:submission_id>/result/", views.submission_result),
     path("users/<str:username>/disqualify/", views.disqualify_user),
     path("runners/heartbeat/", views.runner_heartbeat),
     path("runners/stats/", views.runner_stats),

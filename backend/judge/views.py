@@ -481,23 +481,6 @@ def disqualify_user(request, username):
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
-def submission_result(request, submission_id):
-    if request.headers.get("X-Runner-Token") != settings.RUNNER_CALLBACK_TOKEN:
-        return Response({"detail": "Invalid runner token."}, status=status.HTTP_403_FORBIDDEN)
-    submission = get_object_or_404(Submission.objects.select_related("contest", "problem"), id=submission_id)
-    serializer = SubmissionResultSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    for key, value in serializer.validated_data.items():
-        setattr(submission, key, value)
-    submission.save(update_fields=list(serializer.validated_data.keys()))
-    if submission.status in FINAL_STATUSES:
-        recompute_contest_standings(submission.contest)
-    return Response(SubmissionSerializer(submission).data)
-
-
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
 def runner_heartbeat(request):
     if request.headers.get("X-Runner-Token") != settings.RUNNER_CALLBACK_TOKEN:
         return Response({"detail": "Invalid runner token."}, status=status.HTTP_403_FORBIDDEN)
