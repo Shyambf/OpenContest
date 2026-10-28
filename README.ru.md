@@ -177,31 +177,58 @@ $env:OPENCONTEST_LOAD_WORKERS='10'
 
 ## Реализовано
 
-- авторизация participant/admin;
-- API для контестов, задач, посылок и standings;
-- создание и редактирование задач в админке;
-- sample и hidden tests;
-- custom checker на Python как базовая возможность;
-- RabbitMQ очередь проверок;
-- callback результата от runner-а в backend;
-- пересчет standings после verdict-а;
-- динамический список языков из runner heartbeat;
-- realtime/polling статистика runner-ов в Admin Dashboard;
-- admin summary с реальными счетчиками;
-- rejudge, ручной override verdict-а и disqualify пользователя в рамках контеста;
-- Prometheus-style `/api/metrics/`;
-- Docker Compose окружение;
-- Kubernetes manifests и KEDA autoscaling.
+- **Безопасность и разграничение прав:**
+  - Закрыт доступ к условиям задач предстоящих контестов (403 Forbidden для участников до официального старта);
+  - Валидация временного окна контеста (запрет отправки решений до старта и после завершения);
+  - Защита исходного кода кастомных чекеров от утечки обычным пользователям;
+  - Подключено ограничение частоты запросов (DRF Throttling: `AnonRateThrottle`, `UserRateThrottle`);
+  - Безопасное частичное обновление задач с сохранением существующих тестов.
+- **Раннеры и масштабируемость:**
+  - Параллельное масштабирование раннеров через `RUNNERS_COUNT` в `.env` и флаг `-Runners` в скриптах;
+  - Уникальные идентификаторы реплик (`runner-<hostname>`);
+  - Точный подсчет времени CPU и замер используемой памяти через `rusage` (`MemoryKB`);
+  - Детекция вердикта MLE (Memory Limit Exceeded) и лимитирование кучи JVM для Java;
+  - Защита от падений (`recover()`), обработка зависших сообщений (poison pill) и экспоненциальный backoff в Go-раннере;
+  - Отслеживание времени выполнения посылки (`running_started_at`) для устранения race condition при переотправке.
+- **Производительность и инфраструктура:**
+  - Составные индексы БД `(contest, user, status)` и индексы на `status` и `submitted_at`;
+  - Асинхронный пересчёт лидерборда через сервис `result-processor` (убран блокирующий пересчёт на каждый `GET /standings/`);
+  - Отключение буферизации Nginx (`proxy_buffering off;`) для потоков SSE;
+  - Сайт документации с автоматическим деплоем на GitHub Pages через GitHub Actions.
+- **Базовый функционал платформы:**
+  - Авторизация participant/admin;
+  - API для контестов, задач, посылок и standings;
+  - Создание и редактирование задач в админке;
+  - Sample и hidden tests;
+  - Custom checker на Python;
+  - Очередь RabbitMQ для тестирования посылок;
+  - Callback результата от runner-а в backend;
+  - Динамический список языков из runner heartbeat;
+  - Realtime/polling статистика runner-ов в Admin Dashboard;
+  - Admin summary с реальными счетчиками;
+  - Rejudge, ручной override verdict-а и disqualify пользователя в рамках контеста;
+  - Prometheus-style `/api/metrics/`;
+  - Docker Compose окружение;
+  - Kubernetes manifests и KEDA autoscaling.
 
-## Еще Нужно Доработать
+Подробный отчет по безопасности и статусы исправлений доступны в [SECURITY_AUDIT.md](./SECURITY_AUDIT.md).
 
-- полноценный импорт архивов задач вместо текущего stub endpoint;
-- автотесты и CI;
-- production security settings;
-- публикацию Docker images в registry;
-- более богатые custom checkers;
-- code splitting frontend bundle;
-- WebSocket-обновления вместо polling/SSE.
+## План Дальнейших Доработок (Roadmap)
+
+1. **Автотесты (Unit & Integration Tests):**
+   - Расширение `backend/judge/tests.py` для проверки разграничения доступа (предстоящие контесты, временные окна, приватность чекеров);
+   - Регрессионные тесты на сохранение тестов при частичном обновлении задач.
+2. **CI-пайплайн GitHub Actions (`ci.yml`):**
+   - Автоматический запуск тестов Django (`python manage.py test`) и Go-раннера (`go test ./...`) на каждый push и Pull Request.
+3. **Изоляция компиляции в раннере:**
+   - Оборачивание вызовов компиляторов (`g++`, `rustc`, `javac`) в `nsjail` с лимитом памяти (1 ГБ) и времени (30 сек) для защиты от шаблонных бомб и OOM-падений.
+4. **Оптимизация SSE и real-time соединений:**
+   - Перевод синхронных SSE-эндпоинтов на ASGI или WebSockets для предотвращения исчерпания пула воркеров Gunicorn.
+5. **Безопасная Production-конфигурация:**
+   - Запрет запуска с дефолтным `DJANGO_SECRET_KEY` и включенным `DEBUG` при `DJANGO_ENV=production`.
+6. **Управление контестами и фронтенд:**
+   - Полноценный импорт архивов задач (Polygon-пакеты) вместо текущего заглушечного эндпоинта;
+   - Code splitting бандла фронтенда для ускорения начальной загрузки.
 
 ## Разработка Без Docker
 

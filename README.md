@@ -186,38 +186,54 @@ npm run dev
 
 For local judging without Docker you also need RabbitMQ, Go, `g++`, `python3`, Java, Rust and `nsjail`.
 
-## Current Status
+## Current Status & Security Hardening
 
 Implemented:
 
-- authentication with participant/admin roles
-- contest/problem/submission API
-- admin-only create/edit actions
-- sample and hidden tests
-- dynamic language list from active runners
-- contest registration
-- Python custom checker foundation
-- RabbitMQ judge queue
-- runner verdict callback
-- standings recomputation after verdict
-- SSE endpoints for live streams
-- live runner load dashboard in admin panel
-- Prometheus-style metrics endpoint
-- polling for submission status updates
-- real admin summary counters
-- admin rejudge, verdict override and contest-scoped user disqualification
-- local Docker Compose setup
-- Kubernetes base manifests and KEDA runner autoscaling manifest
+- **Security & Access Control:**
+  - Upcoming contest problem isolation (403 for participants until contest starts);
+  - Submission window enforcement (submissions rejected outside active contest duration);
+  - Custom checker code hidden from non-staff users;
+  - DRF throttling configured (`AnonRateThrottle`, `UserRateThrottle`);
+  - Safe partial problem updates preserving existing sample and secret tests.
+- **Judge Runner & Scalability:**
+  - Concurrent multi-replica runner scaling via `RUNNERS_COUNT` in `.env` and `-Runners` CLI flag;
+  - Unique runner replica IDs (`runner-<hostname>`);
+  - Real CPU execution time calculation and rusage memory measurement (`MemoryKB`);
+  - Accurate MLE (Memory Limit Exceeded) detection and JVM memory capping for Java;
+  - Panic recovery, backoff retries, and poison pill / dead-letter message protection in Go runner;
+  - Submission execution timestamp tracking (`running_started_at`) preventing race conditions during queue repairs.
+- **Performance & Infrastructure:**
+  - Database composite indexes `(contest, user, status)` and indexes on `status` and `submitted_at`;
+  - Async standings calculation via dedicated `result-processor` worker (removed synchronous DB recomputation on `GET /standings/`);
+  - Nginx buffering disabled (`proxy_buffering off;`) for real-time SSE streams;
+  - GitHub Pages documentation site with automated GitHub Actions deployment.
+- **Core Platform Features:**
+  - Authentication with participant/admin roles;
+  - Contest/problem/submission API;
+  - Dynamic language list from active runners;
+  - Rejudge, verdict override, and contest-scoped disqualification;
+  - Real-time SSE streaming for submissions and runner metrics;
+  - Kubernetes manifests with KEDA runner autoscaling.
 
-Still planned:
+For full audit details and remediation history, see [SECURITY_AUDIT.md](./SECURITY_AUDIT.md).
 
-- better contest editor and archive import
-- tests and CI
-- stricter production security settings
-- registry-based image publishing
-- richer problem statements and checkers
-- frontend bundle code splitting
-- WebSocket updates instead of polling
+## Roadmap & Next Steps
+
+1. **Automated Unit & Integration Tests:**
+   - Expand `backend/judge/tests.py` to cover access controls (upcoming contests, submission windows, checker privacy);
+   - Add unit tests for partial problem update regressions.
+2. **GitHub Actions CI Pipeline (`ci.yml`):**
+   - Automated workflow executing Django tests (`python manage.py test`) and Go runner tests/vet (`go test ./...`) on every push/PR.
+3. **Compiler Sandbox Isolation:**
+   - Wrap compilation phase (`g++`, `rustc`, `javac`) in `nsjail` with memory limits (1GB) and timeouts (30s) to prevent compiler bomb attacks and host OOM kills.
+4. **SSE & Real-Time Transport Optimization:**
+   - Migrate long-running synchronous WSGI SSE streams to an asynchronous handler (ASGI) or WebSocket connection to eliminate Gunicorn worker starvation.
+5. **Strict Production Environment Security:**
+   - Enforce non-default `DJANGO_SECRET_KEY` and disable `DEBUG` mode when running in production mode (`DJANGO_ENV=production`).
+6. **Contest Management & UI:**
+   - Rich problem statement markdown editor and comprehensive polygon-style package import;
+   - Frontend bundle code splitting for faster initial page load.
 
 ## Kubernetes
 
