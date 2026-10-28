@@ -93,14 +93,33 @@ func main() {
 		if err := runJob(channel, job, state); err != nil {
 			log.Printf("submission %d failed: %v", job.SubmissionID, err)
 			state.markIdle("runner_error")
-			_ = delivery.Nack(false, true)
+			if delivery.Redelivered {
+				// Poison pill protection: if this message was already redelivered and failed again,
+				// do not loop endlessly. Report an error verdict to results queue and ACK the message.
+				log.Printf("submission %d failed after redelivery; reporting failure verdict", job.SubmissionID)
+				_ = reportResult(channel, job.SubmissionID, map[string]any{
+					"status":       "RE",
+					"judge_output": fmt.Sprintf("Runner execution failed after redelivery: %v", err),
+				})
+				_ = delivery.Ack(false)
+			} else {
+				// Pause briefly before requeueing to avoid spinning at 100% CPU
+				time.Sleep(1 * time.Second)
+				_ = delivery.Nack(false, true)
+			}
 			continue
 		}
 		_ = delivery.Ack(false)
 	}
 }
 
-func runJob(ch *amqp.Channel, job SubmissionJob, state *RunnerState) error {
+func runJob(ch *amqp.Channel, job SubmissionJob, state *RunnerState) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("runner panic: %v", r)
+		}
+	}()
+
 	log.Printf("received submission=%d language=%s problem=%d", job.SubmissionID, job.Language, job.ProblemID)
 
 	_ = reportResult(ch, job.SubmissionID, map[string]any{
