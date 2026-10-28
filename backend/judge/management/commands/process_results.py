@@ -60,10 +60,15 @@ class Command(BaseCommand):
     def process_submission_result(self, submission_id, payload):
         try:
             submission = Submission.objects.get(id=submission_id)
+            update_fields = list(payload.keys())
             for key, value in payload.items():
                 setattr(submission, key, value)
-            
-            submission.save(update_fields=list(payload.keys()))
+
+            if payload.get("status") == "Running" and not submission.running_started_at:
+                submission.running_started_at = timezone.now()
+                update_fields.append("running_started_at")
+
+            submission.save(update_fields=update_fields)
             self.stdout.write(f"Updated submission {submission_id}: {submission.status}")
             
             if submission.status in FINAL_STATUSES:

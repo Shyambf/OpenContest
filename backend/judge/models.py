@@ -123,6 +123,7 @@ class Submission(models.Model):
     submitted_at = models.DateTimeField(auto_now_add=True)
     queue_attempted_at = models.DateTimeField(null=True, blank=True)
     queue_attempts = models.PositiveIntegerField(default=0)
+    running_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
