@@ -73,7 +73,11 @@ class Command(BaseCommand):
                 stuck.append(submission)
                 continue
             if submission.status == "Pending":
-                if submission.queue_attempted_at is None or submission.queue_attempts == 0:
+                if (
+                    submission.queue_attempted_at is None
+                    or submission.queue_attempts == 0
+                    or submission.submitted_at <= pending_cutoff
+                ):
                     stuck.append(submission)
             elif submission.submitted_at <= running_cutoff:
                 stuck.append(submission)
