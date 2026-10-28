@@ -40,8 +40,14 @@ func main() {
 	rabbitURL := getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 	queueName := getenv("JUDGE_QUEUE", "judge.submissions")
 	hostname, _ := os.Hostname()
+	runnerID := getenv("RUNNER_ID", "")
+	if runnerID == "" {
+		runnerID = fmt.Sprintf("runner-%s", hostname)
+	} else if strings.Contains(runnerID, "%s") {
+		runnerID = fmt.Sprintf(runnerID, hostname)
+	}
 	state := &RunnerState{
-		RunnerID:  getenv("RUNNER_ID", hostname),
+		RunnerID:  runnerID,
 		Hostname:  hostname,
 		Status:    "idle",
 		StartedAt: time.Now().UTC(),
