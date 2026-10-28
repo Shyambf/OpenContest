@@ -37,7 +37,16 @@ After startup:
 - Backend health: http://localhost:8000/api/health/
 - RabbitMQ management: http://localhost:15672
 
-If one of these ports is already busy, copy `.env.example` to `.env` and change `FRONTEND_PORT`, `BACKEND_PORT` or `RABBITMQ_UI_PORT`.
+You can customize settings by creating `.env` (copy from `.env.example`):
+
+- `RUNNERS_COUNT=3` — number of parallel runner instances for evaluating submissions concurrently;
+- `FRONTEND_PORT`, `BACKEND_PORT`, or `RABBITMQ_UI_PORT` — port overrides if ports are already busy.
+
+You can also specify the runner count directly via PowerShell CLI flag:
+
+```powershell
+.\scripts\opencontest.ps1 start -Runners 3
+```
 
 RabbitMQ default credentials:
 

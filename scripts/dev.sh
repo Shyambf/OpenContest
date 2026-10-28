@@ -14,4 +14,20 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-docker compose up --build
+# Load .env if present
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+# Support RUNNER_REPLICAS or RUNNER_COUNT as aliases for RUNNERS_COUNT
+if [ -z "${RUNNERS_COUNT:-}" ]; then
+  if [ -n "${RUNNER_REPLICAS:-}" ]; then
+    export RUNNERS_COUNT="$RUNNER_REPLICAS"
+  elif [ -n "${RUNNER_COUNT:-}" ]; then
+    export RUNNERS_COUNT="$RUNNER_COUNT"
+  fi
+fi
+
+docker compose up --build "$@"

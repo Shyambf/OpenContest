@@ -38,7 +38,16 @@ OpenContest - локально запускаемая платформа для 
 - Health check: http://localhost:8000/api/health/
 - RabbitMQ UI: http://localhost:15672
 
-Если какой-то порт занят, скопируй `.env.example` в `.env` и поменяй `FRONTEND_PORT`, `BACKEND_PORT` или `RABBITMQ_UI_PORT`.
+В файле `.env` (скопируй из `.env.example`) можно переопределить настройки:
+
+- `RUNNERS_COUNT=3` — количество параллельных инстансов runner для одновременного тестирования посылок;
+- `FRONTEND_PORT`, `BACKEND_PORT` или `RABBITMQ_UI_PORT` — если какой-то порт на хосте занят.
+
+Также количество раннеров можно передать напрямую при старте через флаг `-Runners`:
+
+```powershell
+.\scripts\opencontest.ps1 start -Runners 3
+```
 
 RabbitMQ:
 
