@@ -733,7 +733,8 @@ def import_problem_archive(request):
 @permission_classes([AllowAny])
 def standings(_request, contest_id):
     contest = get_object_or_404(Contest, id=contest_id)
-    recompute_contest_standings(contest)
+    if not contest.standings.exists():
+        recompute_contest_standings(contest)
     now = timezone.now()
     elapsed_minutes = max(0, int((now - contest.start_time).total_seconds() // 60))
     if contest.status == "finished" and contest.duration_minutes:

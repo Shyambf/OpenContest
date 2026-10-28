@@ -117,6 +117,14 @@ class ProblemDetailSerializer(serializers.ModelSerializer):
     def get_usedIn(self, obj):
         return [contest.title for contest in obj.contests.all()]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        is_staff = bool(request and getattr(request, "user", None) and request.user.is_authenticated and request.user.is_staff)
+        if not is_staff and not self.context.get("include_hidden_tests"):
+            data.pop("checker_code", None)
+        return data
+
 
 class ProblemWriteSerializer(serializers.ModelSerializer):
     samples = SampleTestSerializer(many=True, required=False)
@@ -151,7 +159,7 @@ class ProblemWriteSerializer(serializers.ModelSerializer):
         for key, value in validated_data.items():
             setattr(instance, key, value)
         instance.save()
-        if samples is not None:
+        if samples is not None and len(samples) > 0:
             instance.samples.all().delete()
             SampleTest.objects.bulk_create([SampleTest(problem=instance, **sample) for sample in samples])
         return instance
@@ -288,7 +296,9 @@ class SubmissionSerializer(serializers.ModelSerializer):
         ]
 
     def get_problem(self, obj):
-        cp = ContestProblem.objects.filter(contest=obj.contest, problem=obj.problem).first()
+        contest_id = getattr(obj, "contest_id", None)
+        problem_id = getattr(obj, "problem_id", None)
+        cp = ContestProblem.objects.filter(contest_id=contest_id, problem_id=problem_id).first() if contest_id and problem_id else None
         prefix = f"{cp.letter}. " if cp else ""
         return f"{prefix}{obj.problem.name}"
 
