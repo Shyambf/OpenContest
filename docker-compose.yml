@@ -76,6 +76,28 @@ services:
     command: >
       sh -c "python manage.py requeue_pending --loop --stale-minutes 2 --running-stale-minutes 10 --interval-seconds 30"
 
+  result-processor:
+    build:
+      context: ./backend
+    environment:
+      DJANGO_DEBUG: "1"
+      POSTGRES_DB: opencontest
+      POSTGRES_USER: opencontest
+      POSTGRES_PASSWORD: opencontest
+      POSTGRES_HOST: db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JUDGE_RESULTS_QUEUE: judge.results
+      RUNNER_CALLBACK_TOKEN: dev-runner-token
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py process_results"
+
   frontend:
     build:
       context: ./frontend
@@ -90,9 +112,12 @@ services:
       context: ./runners/go-runner
       args:
         NSJAIL_REF: master
+    deploy:
+      replicas: ${RUNNERS_COUNT:-1}
     environment:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JUDGE_QUEUE: judge.submissions
+      JUDGE_RESULTS_QUEUE: judge.results
       BACKEND_API_URL: http://backend:8000/api
       NSJAIL_BIN: /usr/local/bin/nsjail
       RUNNER_CALLBACK_TOKEN: dev-runner-token
