@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -44,10 +45,14 @@ func judge(job SubmissionJob) Verdict {
 
 	var logs []string
 	maxTime := 0
+	maxMemoryKB := 0
 	for index, test := range job.Tests {
-		result, elapsedMS, err := runTest(job, program, test)
+		result, elapsedMS, memoryKB, err := runTest(job, program, test)
 		if elapsedMS > maxTime {
 			maxTime = elapsedMS
+		}
+		if memoryKB > maxMemoryKB {
+			maxMemoryKB = memoryKB
 		}
 		label := fmt.Sprintf("Test %d", index+1)
 		if test.IsSample {
@@ -55,32 +60,40 @@ func judge(job SubmissionJob) Verdict {
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			logs = append(logs, fmt.Sprintf("%s: TLE", label))
-			return Verdict{Status: "TLE", TimeMS: maxTime, JudgeOutput: strings.Join(logs, "\n")}
+			return Verdict{Status: "TLE", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
 		}
 		if err != nil {
 			if isLikelyTimeLimit(job, elapsedMS, err) {
 				logs = append(logs, fmt.Sprintf("%s: TLE\n%s", label, result))
-				return Verdict{Status: "TLE", TimeMS: maxTime, JudgeOutput: strings.Join(logs, "\n")}
+				return Verdict{Status: "TLE", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
+			}
+			if isLikelyMemoryLimit(job, memoryKB, result, err) {
+				logs = append(logs, fmt.Sprintf("%s: MLE\n%s", label, result))
+				return Verdict{Status: "MLE", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
 			}
 			logs = append(logs, fmt.Sprintf("%s: RE: %v\n%s", label, err, result))
-			return Verdict{Status: "RE", TimeMS: maxTime, JudgeOutput: strings.Join(logs, "\n")}
+			return Verdict{Status: "RE", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
+		}
+		if isLikelyMemoryLimit(job, memoryKB, result, nil) {
+			logs = append(logs, fmt.Sprintf("%s: MLE\n%s", label, result))
+			return Verdict{Status: "MLE", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
 		}
 		ok, checkerLog, checkerErr := checkOutput(job, workdir, test.Input, result, test.Output)
 		if checkerErr != nil {
 			logs = append(logs, fmt.Sprintf("%s: RE in checker: %v\n%s", label, checkerErr, checkerLog))
-			return Verdict{Status: "RE", TimeMS: maxTime, JudgeOutput: strings.Join(logs, "\n")}
+			return Verdict{Status: "RE", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
 		}
 		if !ok {
 			logs = append(logs, fmt.Sprintf("%s: WA\nExpected:\n%s\nGot:\n%s", label, test.Output, result))
 			if checkerLog != "" {
 				logs = append(logs, "Checker:\n"+checkerLog)
 			}
-			return Verdict{Status: "WA", TimeMS: maxTime, JudgeOutput: strings.Join(logs, "\n")}
+			return Verdict{Status: "WA", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
 		}
-		logs = append(logs, fmt.Sprintf("%s: OK (%dms)", label, elapsedMS))
+		logs = append(logs, fmt.Sprintf("%s: OK (%dms, %dKB)", label, elapsedMS, memoryKB))
 	}
 
-	return Verdict{Status: "AC", TimeMS: maxTime, JudgeOutput: strings.Join(logs, "\n")}
+	return Verdict{Status: "AC", TimeMS: maxTime, MemoryKB: maxMemoryKB, JudgeOutput: strings.Join(logs, "\n")}
 }
 
 func prepareProgram(job SubmissionJob, workdir string) (PreparedProgram, string, error) {
@@ -134,7 +147,18 @@ func isLikelyTimeLimit(job SubmissionJob, elapsedMS int, err error) bool {
 	return false
 }
 
-func runTest(job SubmissionJob, program PreparedProgram, test Test) (string, int, error) {
+func isLikelyMemoryLimit(job SubmissionJob, memoryKB int, output string, err error) bool {
+	if job.MemoryLimitMB > 0 && memoryKB > job.MemoryLimitMB*1024 {
+		return true
+	}
+	lower := strings.ToLower(output)
+	if strings.Contains(lower, "outofmemory") || strings.Contains(lower, "std::bad_alloc") || strings.Contains(lower, "memorylimit") {
+		return true
+	}
+	return false
+}
+
+func runTest(job SubmissionJob, program PreparedProgram, test Test) (string, int, int, error) {
 	timeout := time.Duration(job.TimeLimitMS+500) * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -169,13 +193,33 @@ func runTest(job SubmissionJob, program PreparedProgram, test Test) (string, int
 	start := time.Now()
 	err := cmd.Run()
 	elapsedMS := int(time.Since(start).Milliseconds())
+
+	var memoryKB int
+	if ps := cmd.ProcessState; ps != nil {
+		if rusage, ok := ps.SysUsage().(*syscall.Rusage); ok && rusage != nil {
+			memoryKB = int(rusage.Maxrss)
+		}
+		cpuMS := int((ps.UserTime() + ps.SystemTime()).Milliseconds())
+		if cpuMS > 0 && cpuMS < elapsedMS {
+			elapsedMS = cpuMS
+		}
+	}
+
+	combinedOutput := stdout.String()
+	if stderr.Len() > 0 {
+		if combinedOutput != "" {
+			combinedOutput += "\n"
+		}
+		combinedOutput += stderr.String()
+	}
+
 	if ctx.Err() != nil {
-		return stdout.String() + stderr.String(), elapsedMS, ctx.Err()
+		return combinedOutput, elapsedMS, memoryKB, ctx.Err()
 	}
 	if err != nil {
-		return stdout.String() + stderr.String(), elapsedMS, err
+		return combinedOutput, elapsedMS, memoryKB, err
 	}
-	return stdout.String(), elapsedMS, nil
+	return stdout.String(), elapsedMS, memoryKB, nil
 }
 
 func checkOutput(job SubmissionJob, workdir string, input string, output string, answer string) (bool, string, error) {
@@ -202,7 +246,7 @@ print("OK" if ok else "WA")
 	})
 	checkJob := job
 	checkJob.TimeLimitMS = max(1000, job.TimeLimitMS)
-	result, _, err := runTest(checkJob, PreparedProgram{Command: []string{"/usr/bin/python3", checkerPath}}, Test{Input: string(payload), Output: "OK"})
+	result, _, _, err := runTest(checkJob, PreparedProgram{Command: []string{"/usr/bin/python3", checkerPath}}, Test{Input: string(payload), Output: "OK"})
 	if err != nil {
 		return false, result, err
 	}
