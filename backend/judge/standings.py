@@ -36,6 +36,8 @@ def recompute_contest_standings(contest):
             cell = problems[letter]
             if cell.get("solved"):
                 continue
+            if submission.status == "CE":
+                continue
             cell["attempts"] = int(cell.get("attempts", 0)) + 1
             if submission.status == "AC":
                 cell["solved"] = True

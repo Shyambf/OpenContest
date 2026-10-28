@@ -4,12 +4,23 @@ param(
 
   [switch]$ResetData,
   [switch]$NoBuild,
-  [switch]$NoPortForward
+  [switch]$NoPortForward,
+  [int]$Runners = 0
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Namespace = "opencontest"
+
+if ($Runners -gt 0) {
+  $env:RUNNERS_COUNT = "$Runners"
+} elseif (-not $env:RUNNERS_COUNT) {
+  if ($env:RUNNER_REPLICAS) {
+    $env:RUNNERS_COUNT = $env:RUNNER_REPLICAS
+  } elseif ($env:RUNNER_COUNT) {
+    $env:RUNNERS_COUNT = $env:RUNNER_COUNT
+  }
+}
 
 function Require-Command {
   param([string]$Name)

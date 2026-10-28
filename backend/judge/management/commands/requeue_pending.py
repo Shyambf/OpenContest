@@ -73,10 +73,20 @@ class Command(BaseCommand):
                 stuck.append(submission)
                 continue
             if submission.status == "Pending":
-                if submission.queue_attempted_at is None or submission.queue_attempts == 0:
+                if (
+                    submission.queue_attempted_at is None
+                    or submission.queue_attempts == 0
+                    or submission.submitted_at <= pending_cutoff
+                ):
                     stuck.append(submission)
-            elif submission.submitted_at <= running_cutoff:
-                stuck.append(submission)
+            elif submission.status == "Running":
+                running_start = (
+                    submission.running_started_at
+                    or submission.queue_attempted_at
+                    or submission.submitted_at
+                )
+                if running_start <= running_cutoff:
+                    stuck.append(submission)
 
         if not stuck:
             self.stdout.write("No stuck submissions found.")
@@ -87,7 +97,8 @@ class Command(BaseCommand):
         for submission in stuck:
             submission.status = "Pending"
             submission.judge_output = "Requeued by maintenance command."
-            submission.save(update_fields=["status", "judge_output"])
+            submission.running_started_at = None
+            submission.save(update_fields=["status", "judge_output", "running_started_at"])
             try:
                 publish_submission(submission)
             except Exception as exc:

@@ -12,30 +12,26 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write("Starting result consumer...")
-        
+
         # Нам нужно отслеживать, какие контесты требуют пересчета
         self.pending_standings_updates = set()
         self.last_standings_update = time.time()
         self.update_interval = 5  # Пересчитывать не чаще чем раз в 5 секунд
 
-        connection = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
-        channel = connection.channel()
-        
         results_queue = getattr(settings, "JUDGE_RESULTS_QUEUE", "judge.results")
-        channel.queue_declare(queue=results_queue, durable=True)
-        
+
         def callback(ch, method, properties, body):
             try:
                 data = json.loads(body)
                 submission_id = data["submission_id"]
                 payload = data["payload"]
-                
+
                 self.process_submission_result(submission_id, payload)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
-                
+
                 # Проверяем, не пора ли пересчитать таблицу лидеров
                 self.check_standings_updates()
-                
+
             except Exception as e:
                 self.stderr.write(f"Error processing result: {e}")
                 # В случае ошибки не подтверждаем сообщение, чтобы оно вернулось в очередь
@@ -43,21 +39,36 @@ class Command(BaseCommand):
                 if not isinstance(e, json.JSONDecodeError):
                     time.sleep(1)  # Защита от бесконечного цикла ошибок
 
-        channel.basic_consume(queue=results_queue, on_message_callback=callback)
-        
-        try:
-            channel.start_consuming()
-        except KeyboardInterrupt:
-            channel.stop_consuming()
-        connection.close()
+        while True:
+            try:
+                connection = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
+                channel = connection.channel()
+                channel.queue_declare(queue=results_queue, durable=True)
+                channel.basic_consume(queue=results_queue, on_message_callback=callback)
+                self.stdout.write(f"Listening for judge results on {results_queue}...")
+                channel.start_consuming()
+            except pika.exceptions.AMQPConnectionError as e:
+                self.stderr.write(f"RabbitMQ connection error: {e}. Retrying in 5s...")
+                time.sleep(5)
+            except KeyboardInterrupt:
+                self.stdout.write("Stopping result consumer...")
+                break
+            except Exception as e:
+                self.stderr.write(f"Unexpected error in result consumer: {e}. Retrying in 5s...")
+                time.sleep(5)
 
     def process_submission_result(self, submission_id, payload):
         try:
             submission = Submission.objects.get(id=submission_id)
+            update_fields = list(payload.keys())
             for key, value in payload.items():
                 setattr(submission, key, value)
-            
-            submission.save(update_fields=list(payload.keys()))
+
+            if payload.get("status") == "Running" and not submission.running_started_at:
+                submission.running_started_at = timezone.now()
+                update_fields.append("running_started_at")
+
+            submission.save(update_fields=update_fields)
             self.stdout.write(f"Updated submission {submission_id}: {submission.status}")
             
             if submission.status in FINAL_STATUSES:

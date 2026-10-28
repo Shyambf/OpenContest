@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404
 from django.utils.text import slugify
 from django.conf import settings
 from django.utils import timezone
+from datetime import timedelta
 from django.http import HttpResponse, StreamingHttpResponse
 from django.db import transaction
 from django.db.models import Count
@@ -287,23 +288,31 @@ def gyms(_request):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
-def contest_problems(_request, contest_id):
-    qs = ContestProblem.objects.filter(contest_id=contest_id).select_related("problem").order_by("letter")
-    return Response(ContestProblemSerializer(qs, many=True).data)
+def contest_problems(request, contest_id):
+    contest = get_object_or_404(Contest, id=contest_id)
+    if not contest.is_gym and contest.status == "upcoming":
+        if not (request.user.is_authenticated and request.user.is_staff):
+            return Response({"detail": "Contest has not started yet."}, status=status.HTTP_403_FORBIDDEN)
+    qs = ContestProblem.objects.filter(contest=contest).select_related("problem").order_by("letter")
+    return Response(ContestProblemSerializer(qs, many=True, context={"request": request}).data)
 
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
-def problem_detail(_request, contest_id, letter):
+def problem_detail(request, contest_id, letter):
     contest_problem = (
         ContestProblem.objects.filter(contest_id=contest_id, letter=letter)
-        .select_related("problem")
+        .select_related("contest", "problem")
         .prefetch_related("problem__samples")
         .first()
     )
     if not contest_problem:
         return Response({"detail": "Problem not found."}, status=status.HTTP_404_NOT_FOUND)
-    return Response(ProblemDetailSerializer(contest_problem.problem).data)
+    contest = contest_problem.contest
+    if not contest.is_gym and contest.status == "upcoming":
+        if not (request.user.is_authenticated and request.user.is_staff):
+            return Response({"detail": "Contest has not started yet."}, status=status.HTTP_403_FORBIDDEN)
+    return Response(ProblemDetailSerializer(contest_problem.problem, context={"request": request}).data)
 
 
 @api_view(["GET", "POST"])
@@ -409,13 +418,27 @@ def submissions(request):
         contest_id=data["contest_id"],
         letter=data["problem_letter"],
     )
-    if not contest_problem.contest.is_gym:
-        ContestRegistration.objects.get_or_create(contest=contest_problem.contest, username=request.user.username)
-        contest_problem.contest.participants = contest_problem.contest.registrations.count()
-        contest_problem.contest.save(update_fields=["participants"])
+    contest = contest_problem.contest
+    if not contest.is_gym and not contest.allow_virtual:
+        now = timezone.now()
+        if contest.status == "upcoming" or now < contest.start_time:
+            if not request.user.is_staff:
+                return Response({"detail": "Contest has not started yet."}, status=status.HTTP_400_BAD_REQUEST)
+        elif contest.status == "finished":
+            if not request.user.is_staff:
+                return Response({"detail": "Contest has already ended."}, status=status.HTTP_400_BAD_REQUEST)
+        elif contest.duration_minutes:
+            end_time = contest.start_time + timedelta(minutes=contest.duration_minutes)
+            if now > end_time and not request.user.is_staff:
+                return Response({"detail": "Contest duration has expired."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not contest.is_gym:
+        ContestRegistration.objects.get_or_create(contest=contest, username=request.user.username)
+        contest.participants = contest.registrations.count()
+        contest.save(update_fields=["participants"])
     submission = Submission.objects.create(
         user=request.user.username,
-        contest=contest_problem.contest,
+        contest=contest,
         problem=contest_problem.problem,
         language=data["language"],
         source_code=data["source_code"],
@@ -710,7 +733,8 @@ def import_problem_archive(request):
 @permission_classes([AllowAny])
 def standings(_request, contest_id):
     contest = get_object_or_404(Contest, id=contest_id)
-    recompute_contest_standings(contest)
+    if not contest.standings.exists():
+        recompute_contest_standings(contest)
     now = timezone.now()
     elapsed_minutes = max(0, int((now - contest.start_time).total_seconds() // 60))
     if contest.status == "finished" and contest.duration_minutes:
