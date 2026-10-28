@@ -124,6 +124,14 @@ class Submission(models.Model):
     queue_attempted_at = models.DateTimeField(null=True, blank=True)
     queue_attempts = models.PositiveIntegerField(default=0)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["contest", "user", "status"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["submitted_at"]),
+        ]
+        ordering = ["-submitted_at"]
+
 
 class StandingsRow(models.Model):
     contest = models.ForeignKey(Contest, related_name="standings", on_delete=models.CASCADE)
